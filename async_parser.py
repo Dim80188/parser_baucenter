@@ -1,12 +1,10 @@
-import asyncio 
-from concurrent.futures import ProcessPoolExecutor 
-from bs4 import BeautifulSoup 
-import json 
-import aiohttp 
+import asyncio
+from concurrent.futures import ProcessPoolExecutor
+from bs4 import BeautifulSoup
+import json
+import aiohttp
 
-# 1.собираем со страницы каталога ссылки на категории
-# 2.собираем со страниц с категориями ссылки на страницы со списком товаров
-# 3.заходим на страницу с товаром и собираем данные по товарам
+
 
 async def make_request(url, session):
     response = await session.get(url)
@@ -53,7 +51,7 @@ def _get_html_container_2(html):
                 # print(f'Добавляю {link}')
                 links.append(link)
         except:
-            pass          
+            pass
     return links
 
 def _get_data(html):
@@ -70,7 +68,7 @@ def _get_data(html):
             print(f'Внес в файл {name}')
             article = point.get('data-article')
             price = point.get('data-price')
-            
+
             result.append(
                 {
                     'name': name,
@@ -78,8 +76,8 @@ def _get_data(html):
                     'price': price
                 }
             )
-            
-            
+
+
 
         with open('result_async.json', 'w') as file:
             json.dump(result, file, indent=4, ensure_ascii=False)
@@ -88,23 +86,18 @@ async def get_first_step(first_step_queue, session):
     url = 'https://baucenter.ru/catalog/'
     response = await make_request(url, session)
     html = await response.text()
-    # синхронный код из асинхронной функции вызываем только передав его в отдельный поток(процесс)
-    # получаем текущий событийный цикл
     loop = asyncio.get_running_loop()
     with ProcessPoolExecutor() as pool:
-        # запускаем синхронную функцию в отдельном процессе
         first_step_links = await loop.run_in_executor(
-            pool, _get_html_container, html 
+            pool, _get_html_container, html
         )
-        
-    # помещаем ссылку в очередь
+
     for link in first_step_links:
         await first_step_queue.put(link)
     return first_step_queue
 
 
 async def get_second_step(first_step_queue, second_step_queue, session):
-    # while True:
     url = await first_step_queue.get()
     response = await make_request(url, session)
     html = await response.text()
@@ -127,15 +120,13 @@ async def get_data_step(second_step_queue, session):
         with ProcessPoolExecutor() as pool:
             await loop.run_in_executor(
                 pool, _get_data, html
-            ) 
-        second_step_queue.task_done() 
+            )
+        second_step_queue.task_done()
 
 async def main():
     session = aiohttp.ClientSession()
-    # создаем экземпляр очереди
     first_step_queue = asyncio.Queue()
     second_step_queue = asyncio.Queue()
-    # создаем список для новых задач
     page_getters = []
     task = asyncio.create_task(get_first_step(first_step_queue, session))
     page_getters.append(task)
@@ -153,7 +144,7 @@ async def main():
             get_data_step(second_step_queue, session)
         )
         data_getters.append(task)
-    
+
     await asyncio.gather(*page_getters)
     await first_step_queue.join()
     await second_step_queue.join()
